@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Solicitudes e Inventario</title>
+    <!-- Bootstrap 5 CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- Vue.js 3 CDN -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body class="bg-light">
+
+    <div id="app" class="container my-4">
+        
+        <!-- Navbar Superior -->
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm rounded mb-4 px-3" v-if="isLoggedIn">
+            <a class="navbar-brand" href="#"><i class="bi bi-box-seam"></i> Inventario & Proveedores</a>
+            <div class="ms-auto d-flex align-items-center text-white">
+                <span class="me-3"><i class="bi bi-person-circle"></i> {{ currentUser.nombre }} ({{ currentUser.roles ? currentUser.roles.join(', ') : '' }})</span>
+                <button class="btn btn-outline-light btn-sm" @click="cerrarSesion()"><i class="bi bi-box-arrow-right"></i> Salir</button>
+            </div>
+        </nav>
+
+        <!-- MENSAJES DE ALERTA -->
+        <div v-if="errorMessage" class="alert alert-danger alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill"></i> <strong>Aviso:</strong> {{ errorMessage }}
+            <button type="button" class="btn-close" @click="errorMessage = ''"></button>
+        </div>
+        <div v-if="successMessage" class="alert alert-success alert-dismissible fade show shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill"></i> {{ successMessage }}
+            <button type="button" class="btn-close" @click="successMessage = ''"></button>
+        </div>
+
+        <!-- SECCIÓN DE AUTENTICACIÓN -->
+        <div class="row justify-content-center" v-if="!isLoggedIn">
+            <div class="col-md-5">
+                <div class="card shadow border-0 rounded-4">
+                    <div class="card-body p-4">
+                        <h3 class="text-center mb-4 text-primary fw-bold">Acceso al Sistema</h3>
+
+                        <!-- Login Paso 1 -->
+                        <div v-if="authStep === 'login'">
+                            <form @submit.prevent="ejecutarLogin">
+                                <div class="mb-3">
+                                    <label class="form-label">Correo Electrónico</label>
+                                    <input type="email" class="form-control" minlength="10" maxlength="50" v-model="loginData.email"  required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Contraseña</label>
+                                    <input type="password" class="form-control" minlength="8" maxlength="50" v-model="loginData.password" required>
+                                </div>
+                                
+                                <!-- CAPTCHA LOGIN -->
+                                <div class="mb-3 p-3 bg-white border rounded shadow-sm">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="checkCaptchaLogin" v-model="captchaResueltoLogin" required>
+                                        <label class="form-check-label text-dark fw-semibold" for="checkCaptchaLogin">
+                                            <i class="bi bi-shield-check text-success"></i> No soy un robot
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="d-grid mb-3">
+                                    <button type="submit" class="btn btn-primary" :disabled="loading">Ingresar</button>
+                                </div>
+                                <div class="text-center">
+                                    <a href="#" @click.prevent="authStep = 'register'">¿No tienes cuenta? Regístrate aquí</a>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Verificación OTP -->
+                        <div v-if="authStep === 'otp'">
+                            <div class="alert alert-info small">Revisa la consola de tu backend de FastAPI para ver el código OTP de 6 dígitos.</div>
+                            <form @submit.prevent="verificarOtp">
+                                <div class="mb-3">
+                                    <label class="form-label">Código OTP de Verificación</label>
+                                    <input type="text" class="form-control text-center fs-3" v-model="otpCode" maxlength="6" required>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-success" :disabled="loading">Verificar y Acceder</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Registro -->
+                        <div v-if="authStep === 'register'">
+                            <form @submit.prevent="ejecutarRegistro">
+                                <div class="mb-3">
+                                    <label class="form-label">Nombre Completo (Mín. 3 caracteres)</label>
+                                    <input type="text" class="form-control" v-model="regData.nombre" minlength="3" maxlength="100" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Correo Electrónico</label>
+                                    <input type="email" class="form-control" v-model="regData.email" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Contraseña</label>
+                                    <input type="password" class="form-control" v-model="regData.password" placeholder="Mín. 8 caracteres, Mayús, minús, núm, símbolo" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Confirmar Contraseña</label>
+                                    <input type="password" class="form-control" v-model="regData.confirmar_password" required>
+                                </div>
+
+                                <!-- CAPTCHA REGISTRO -->
+                                <div class="mb-3 p-3 bg-white border rounded shadow-sm">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="checkCaptchaReg" v-model="captchaResueltoReg" required>
+                                        <label class="form-check-label text-dark fw-semibold" for="checkCaptchaReg">
+                                            <i class="bi bi-shield-check text-success"></i> No soy un robot
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="d-grid mb-3">
+                                    <button type="submit" class="btn btn-dark" :disabled="loading">Registrarse</button>
+                                </div>
+                                <div class="text-center">
+                                    <a href="#" @click.prevent="authStep = 'login'">¿Ya tienes cuenta? Inicia sesión</a>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Activar Correo -->
+                        <div v-if="authStep === 'verify_email'">
+                            <div class="alert alert-warning small">Tu cuenta está pendiente. Revisa la consola de FastAPI para ver el código de activación.</div>
+                            <form @submit.prevent="confirmarEmailToken">
+                                <div class="mb-3">
+                                    <label class="form-label">Código de Activación (6 dígitos)</label>
+                                    <input type="text" class="form-control text-center" v-model="emailOtpCode" maxlength="6" required>
+                                </div>
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-warning text-white">Activar Cuenta</button>
+                                </div>
+                            </form>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PANEL PRINCIPAL (DASHBOARD) -->
+        <div v-if="isLoggedIn">
+            <ul class="nav nav-tabs mb-4">
+                <li class="nav-item"><a class="nav-link" :class="{ active: activeTab === 'requests' }" href="#" @click.prevent="activeTab = 'requests'; cargarSolicitudes()">Solicitudes</a></li>
+                <li class="nav-item"><a class="nav-link" :class="{ active: activeTab === 'products' }" href="#" @click.prevent="activeTab = 'products'; cargarProductos()">Productos</a></li>
+                <li class="nav-item"><a class="nav-link" :class="{ active: activeTab === 'suppliers' }" href="#" @click.prevent="activeTab = 'suppliers'; cargarProveedores()">Proveedores</a></li>
+            </ul>
+
+            <!-- Pestaña Solicitudes -->
+            <div v-if="activeTab === 'requests'">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4>Gestión de Solicitudes de Compra</h4>
+                    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevaSolicitud" @click="prepararNuevaSolicitud"><i class="bi bi-plus-circle"></i> Nueva Solicitud</button>
+                </div>
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th>Número</th>
+                                        <th>Proveedor ID</th>
+                                        <th>Fecha Entrega</th>
+                                        <th>Estado</th>
+                                        <th>Observaciones</th>
+                                        <th>Líneas</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="req in requestsList" :key="req.id">
+                                        <td><strong>{{ req.numero }}</strong></td>
+                                        <td>{{ req.proveedor_id }}</td>
+                                        <td>{{ req.fecha_entrega }}</td>
+                                        <td><span class="badge bg-secondary">{{ req.estado }}</span></td>
+                                        <td>{{ req.observaciones || 'N/A' }}</td>
+                                        <td>
+                                            <ul class="mb-0 ps-3 small">
+                                                <li v-for="l in req.lineas" :key="l.id">
+                                                    {{ l.nombre }} (Cant: {{ l.cant_solicitada }})
+                                                </li>
+                                            </ul>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="requestsList.length === 0">
+                                        <td colspan="6" class="text-center text-muted">No hay solicitudes registradas.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pestaña Productos -->
+            <div v-if="activeTab === 'products'">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4>Catálogo de Productos</h4>
+                    <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#modalNuevoProducto"><i class="bi bi-plus-circle"></i> Nuevo Producto</button>
+                </div>
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        <table class="table table-striped align-middle">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Nombre</th>
+                                    <th>Descripción</th>
+                                    <th>Unidad</th>
+                                    <th>Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="p in productsList" :key="p.id">
+                                    <td><code>{{ p.codigo }}</code></td>
+                                    <td><strong>{{ p.nombre }}</strong></td>
+                                    <td>{{ p.descripcion }}</td>
+                                    <td>{{ p.unidad }}</td>
+                                    <td><span class="badge" :class="p.activo ? 'bg-success' : 'bg-danger'">{{ p.activo ? 'Activo' : 'Inactivo' }}</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pestaña Proveedores -->
+            <div v-if="activeTab === 'suppliers'">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4>Gestión de Proveedores</h4>
+                    <button class="btn btn-warning btn-sm text-white" data-bs-toggle="modal" data-bs-target="#modalNuevoProveedor"><i class="bi bi-plus-circle"></i> Nuevo Proveedor</button>
+                </div>
+                <div class="card shadow-sm border-0">
+                    <div class="card-body">
+                        <table class="table table-striped align-middle">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>Código</th>
+                                    <th>Nombre</th>
+                                    <th>NIT</th>
+                                    <th>Email</th>
+                                    <th>Teléfono</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="s in suppliersList" :key="s.id">
+                                    <td><code>{{ s.codigo }}</code></td>
+                                    <td><strong>{{ s.nombre }}</strong></td>
+                                    <td>{{ s.nit }}</td>
+                                    <td>{{ s.email }}</td>
+                                    <td>{{ s.telefono || 'N/A' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL NUEVA SOLICITUD -->
+        <div class="modal fade" id="modalNuevaSolicitud" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Crear Solicitud de Compra</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Proveedor</label>
+                            <select class="form-select" v-model.number="newReq.proveedor_id">
+                                <option v-for="sup in suppliersList" :value="sup.id" :key="sup.id">{{ sup.nombre }}</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Fecha de Entrega Estimada (No anterior a hoy)</label>
+                            <input type="date" class="form-control" v-model="newReq.fecha_entrega" :min="fechaMinima" required>
+                        </div>
+                        <div class="mb-3">
+                            <div class="mb-3">
+                                <label class="form-label">Observaciones (Mín. 10 caracteres, Máx. 500)</label>
+                                <textarea class="form-control" v-model="newReq.observaciones" minlength="10" maxlength="500" placeholder="Ingrese un comentario detallado..."></textarea>
+                            </div>
+                        </div>
+                        <hr>
+                        <h6>Líneas de Productos</h6>
+                        <div class="mb-3 border p-3 rounded bg-light">
+                            <label class="form-label">Seleccionar Producto</label>
+                            <select class="form-select mb-2" v-model.number="selectedProdId">
+                                <option disabled value="">-- Seleccione un producto --</option>
+                                <option v-for="prod in productsList" :value="prod.id" :key="prod.id">{{ prod.nombre }} ({{ prod.codigo }})</option>
+                            </select>
+                            <label class="form-label">Cantidad (1 a 1,000,000)</label>
+                            <input type="number" class="form-control mb-2" v-model.number="selectedQty" min="1" max="1000000">
+                            <button class="btn btn-secondary btn-sm" type="button" @click="agregarLinea">
+                                <i class="bi bi-plus"></i> Agregar a la Solicitud
+                            </button>
+                        </div>
+                        
+                        <div v-if="newReq.lineas.length > 0">
+                            <label class="form-label fw-bold text-muted small">Ítems agregados:</label>
+                            <ul class="list-group">
+                                <li class="list-group-item d-flex justify-content-between align-items-center" v-for="(line, index) in newReq.lineas" :key="index">
+                                    <span><strong>{{ obtenerNombreProducto(line.producto_id) }}</strong> - Cant: {{ line.cant_solicitada }}</span>
+                                    <button class="btn btn-danger btn-sm" type="button" @click="newReq.lineas.splice(index, 1)"><i class="bi bi-trash"></i></button>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-primary" @click="guardarSolicitud">Guardar Solicitud</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL NUEVO PRODUCTO -->
+        <div class="modal fade" id="modalNuevoProducto" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Registrar Nuevo Producto</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3"><label>Código (Mín. 3 carac.)</label><input type="text" class="form-control" v-model="newProd.codigo" minlength="3" maxlength="30" required></div>
+                        <div class="mb-3"><label>Nombre (Mín. 2 carac.)</label><input type="text" class="form-control" v-model="newProd.nombre" minlength="2" maxlength="100" required></div>
+                        <div class="mb-3"><label>Descripción</label><input type="text" class="form-control" v-model="newProd.descripcion" maxlength="255"></div>
+                        <div class="mb-3"><label>Unidad de Medida</label><input type="text" class="form-control" v-model="newProd.unidad" placeholder="Ej. Unidad, Caja" minlength="2" maxlength="30" required></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-success" @click="guardarProducto">Guardar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL NUEVO PROVEEDOR -->
+        <div class="modal fade" id="modalNuevoProveedor" tabindex="-1">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Registrar Nuevo Proveedor</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3"><label>Código</label><input type="text" class="form-control" v-model="newSupp.codigo" minlength="3" maxlength="30" required></div>
+                        <div class="mb-3"><label>Nombre / Razón Social</label><input type="text" class="form-control" v-model="newSupp.nombre" minlength="2" maxlength="150" required></div>
+                        <div class="mb-3"><label>NIT / Identificación</label><input type="text" class="form-control" v-model="newSupp.nit" minlength="5" maxlength="30" required></div>
+                        <div class="mb-3"><label>Email</label><input type="email" class="form-control" v-model="newSupp.email" required></div>
+                        <div class="mb-3"><label>Teléfono</label><input type="text" class="form-control" v-model="newSupp.telefono" minlength="7" maxlength="25"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="button" class="btn btn-warning text-white" @click="guardarProveedor">Guardar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Script de lógica de la aplicación -->
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    baseUrl: 'http://127.0.0.1:8000/api/v1',
+                    isLoggedIn: false,
+                    authStep: 'login',
+                    activeTab: 'requests',
+                    
+                    loginData: { email: '', password: '', captcha_token: '', dispositivo_id: 'browser_vue' },
+                    regData: { nombre: '', email: '', password: '', confirmar_password: '', captcha_token: '' },
+                    
+                    captchaResueltoLogin: false,
+                    captchaResueltoReg: false,
+                    
+                    otpCode: '',
+                    emailOtpCode: '',
+                    registeredUserId: null,
+                    loginTicket: '',
+                    
+                    currentUser: { nombre: '', roles: [] },
+                    errorMessage: '',
+                    successMessage: '',
+                    loading: false,
+
+                    requestsList: [],
+                    productsList: [],
+                    suppliersList: [],
+
+                    newProd: { codigo: '', nombre: '', descripcion: '', unidad: 'Unidad', activo: true },
+                    newSupp: { codigo: '', nombre: '', nit: '', email: '', telefono: '', activo: true },
+                    
+                    newReq: { proveedor_id: 1, fecha_entrega: '', observaciones: '', lineas: [] },
+                    selectedProdId: '',
+                    selectedQty: 1,
+                    
+                    fechaMinima: new Date().toISOString().split('T')[0]
+                }
+            },
+            mounted() {
+                const token = localStorage.getItem('access_token');
+                if (token) {
+                    this.isLoggedIn = true;
+                    this.cargarDatosIniciales();
+                }
+            },
+            methods: {
+                getHeaders() {
+                    return {
+                        'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || ''),
+                        'Content-Type': 'application/json'
+                    };
+                },
+                manejarErrorApi(err, mensajePorDefecto) {
+                    if (err.detail) {
+                        if (Array.isArray(err.detail)) {
+                            this.errorMessage = err.detail.map(e => `${e.loc[e.loc.length - 1]}: ${e.msg}`).join(' | ');
+                        } else {
+                            this.errorMessage = err.detail;
+                        }
+                    } else {
+                        this.errorMessage = mensajePorDefecto;
+                    }
+                },
+                ejecutarLogin() {
+                    if (!this.captchaResueltoLogin) {
+                        this.errorMessage = 'Por favor, complete la verificación de seguridad (No soy un robot).';
+                        return;
+                    }
+                    this.loginData.captcha_token = "token_valido";
+                    this.errorMessage = '';
+                    this.loading = true;
+                    fetch(`${this.baseUrl}/auth/login`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.loginData)
+                    })
+                    .then(async res => {
+                        this.loading = false;
+                        const data = await res.json();
+                        if (!res.ok) throw data;
+                        if (data.status === 'otp_required') {
+                            this.loginTicket = data.login_ticket;
+                            this.authStep = 'otp';
+                            this.successMessage = data.mensaje;
+                        }
+                    })
+                    .catch(err => {
+                        this.loading = false;
+                        this.manejarErrorApi(err, 'Error al iniciar sesión.');
+                    });
+                },
+                verificarOtp() {
+                    this.errorMessage = '';
+                    this.loading = true;
+                    fetch(`${this.baseUrl}/auth/verify-otp`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ login_ticket: this.loginTicket, otp: this.otpCode })
+                    })
+                    .then(async res => {
+                        this.loading = false;
+                        const data = await res.json();
+                        if (!res.ok) throw data;
+                        localStorage.setItem('access_token', data.access_token);
+                        this.currentUser = data.usuario;
+                        this.isLoggedIn = true;
+                        this.successMessage = '¡Bienvenido al sistema!';
+                        this.cargarDatosIniciales();
+                    })
+                    .catch(err => {
+                        this.loading = false;
+                        this.manejarErrorApi(err, 'Código OTP incorrecto.');
+                    });
+                },
+                ejecutarRegistro() {
+                    if (!this.captchaResueltoReg) {
+                        this.errorMessage = 'Por favor, complete la verificación de seguridad (No soy un robot).';
+                        return;
+                    }
+                    this.regData.captcha_token = "token_valido";
+                    this.errorMessage = '';
+                    this.loading = true;
+                    fetch(`${this.baseUrl}/auth/register`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(this.regData)
+                    })
+                    .then(async res => {
+                        this.loading = false;
+                        const data = await res.json();
+                        if (!res.ok) throw data;
+                        this.registeredUserId = data.usuario_id;
+                        this.authStep = 'verify_email';
+                        this.successMessage = data.mensaje;
+                    })
+                    .catch(err => {
+                        this.loading = false;
+                        this.manejarErrorApi(err, 'Error en el registro.');
+                    });
+                },
+                confirmarEmailToken() {
+                    fetch(`${this.baseUrl}/auth/verify-email?usuario_id=${this.registeredUserId}&codigo=${this.emailOtpCode}`, {
+                        method: 'POST'
+                    })
+                    .then(async res => {
+                        const data = await res.json();
+                        if (!res.ok) throw data;
+                        this.successMessage = data.mensaje + ' Ya puedes iniciar sesión.';
+                        this.authStep = 'login';
+                    })
+                    .catch(err => { this.manejarErrorApi(err, 'Código de activación incorrecto.'); });
+                },
+                cerrarSesion() {
+                    fetch(`${this.baseUrl}/auth/logout`, {
+                        method: 'POST',
+                        headers: this.getHeaders()
+                    }).finally(() => {
+                        localStorage.removeItem('access_token');
+                        this.isLoggedIn = false;
+                        this.authStep = 'login';
+                    });
+                },
+                cargarDatosIniciales() {
+                    this.cargarSolicitudes();
+                    this.cargarProductos();
+                    this.cargarProveedores();
+                },
+                cargarSolicitudes() {
+                    fetch(`${this.baseUrl}/requests`, { headers: this.getHeaders() })
+                    .then(res => {
+                        if (res.status === 401) { this.cerrarSesion(); return []; }
+                        return res.json();
+                    })
+                    .then(data => { if(Array.isArray(data)) this.requestsList = data; });
+                },
+                cargarProductos() {
+                    fetch(`${this.baseUrl}/products`, { headers: this.getHeaders() })
+                    .then(res => res.json())
+                    .then(data => { if(Array.isArray(data)) this.productsList = data; });
+                },
+                cargarProveedores() {
+                    fetch(`${this.baseUrl}/suppliers`, { headers: this.getHeaders() })
+                    .then(res => res.json())
+                    .then(data => { if(Array.isArray(data)) this.suppliersList = data; });
+                },
+                prepararNuevaSolicitud() {
+                    this.newReq = {
+                        proveedor_id: this.suppliersList[0] ? this.suppliersList[0].id : 1,
+                        fecha_entrega: this.fechaMinima,
+                        observaciones: '',
+                        lineas: []
+                    };
+                    this.selectedProdId = '';
+                    this.selectedQty = 1;
+                },
+                agregarLinea() {
+                    if (!this.selectedProdId || this.selectedQty <= 0) {
+                        this.errorMessage = 'Seleccione un producto válido y una cantidad mayor a 0.';
+                        return;
+                    }
+                    this.errorMessage = '';
+                    const existente = this.newReq.lineas.find(l => l.producto_id === Number(this.selectedProdId));
+                    if (existente) {
+                        existente.cant_solicitada += Number(this.selectedQty);
+                    } else {
+                        this.newReq.lineas.push({
+                            producto_id: Number(this.selectedProdId),
+                            cant_solicitada: Number(this.selectedQty)
+                        });
+                    }
+                    this.selectedProdId = '';
+                    this.selectedQty = 1;
+                },
+                obtenerNombreProducto(id) {
+                    const prod = this.productsList.find(p => p.id === id);
+                    return prod ? prod.nombre : `Prod ID: ${id}`;
+                },
+                guardarSolicitud() {
+                    if (this.newReq.lineas.length === 0) {
+                        this.errorMessage = 'Debe agregar al menos una línea de producto.';
+                        return;
+                    }
+
+                    // Validación de longitud mínima de observaciones en el frontend
+                    if (this.newReq.observaciones && this.newReq.observaciones.trim().length > 0 && this.newReq.observaciones.trim().length < 10) {
+                        this.errorMessage = 'Las observaciones deben tener al menos 10 caracteres.';
+                        return;
+                    }
+
+                    this.errorMessage = '';
+                    fetch(`${this.baseUrl}/requests`, {
+                        method: 'POST',
+                        headers: this.getHeaders(),
+                        body: JSON.stringify(this.newReq)
+                    })
+                    .then(async res => {
+                        const data = await res.json();
+                        if (!res.ok) throw data;
+                        this.successMessage = data.mensaje;
+                        this.cargarSolicitudes();
+                        const modalEl = document.getElementById('modalNuevaSolicitud');
+                        const modal = bootstrap.Modal.getInstance(modalEl);
+                        if (modal) modal.hide();
+                    })
+                    .catch(err => { this.manejarErrorApi(err, 'Error al crear solicitud.'); });
+                },
+                guardarProducto() {
+                    this.errorMessage = '';
+                    fetch(`${this.baseUrl}/products`, {
+                        method: 'POST',
+                        headers: this.getHeaders(),
+                        body: JSON.stringify(this.newProd)
+                    })
+                    .then(async res => {
+                        const data = await res.json();
+                        if (!res.ok) throw data;
+                        this.successMessage = data.mensaje;
+                        this.cargarProductos();
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('modalNuevoProducto'));
+                        if (modal) modal.hide();
+                    })
+                    .catch(err => { this.manejarErrorApi(err, 'Error al crear producto.'); });
+                },
+                guardarProveedor() {
+                    this.errorMessage = '';
+                    fetch(`${this.baseUrl}/suppliers`, {
+                        method: 'POST',
+                        headers: this.getHeaders(),
+                        body: JSON.stringify(this.newSupp)
+                    })
+                    .then(async res => {
+                        const data = await res.json();
+                        if (!res.ok) throw data;
+                        this.successMessage = data.mensaje;
+                        this.cargarProveedores();
+                        const modal = bootstrap.Modal.getInstance(document.getElementById('modalNuevoProveedor'));
+                        if (modal) modal.hide();
+                    })
+                    .catch(err => { this.manejarErrorApi(err, 'Error al crear proveedor.'); });
+                }
+            }
+        }).mount('#app');
+    </script>
+    
+    <!-- Bootstrap 5 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
