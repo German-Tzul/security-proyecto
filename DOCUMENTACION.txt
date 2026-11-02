@@ -1,0 +1,24 @@
+INSTALAR PYTHON: 3.15.1
+
+CREAR UN ENTORNO VIRUAL
+python -m venv .venv
+
+
+//ACTIVAR ENTORNO
+.\venv\Scripts\Activate.ps1
+
+
+//INTALAR LOS REQUERIMIENTOS DE FAZTAPI
+pip install -r requirements.txt
+
+
+
+//LEVANTAR SERVIDOR FASTAI
+uvicorn main:app --reload --port 8000
+
+
+//LEVANTAR HTMLI
+CLIC ES SOLO UNA PAGINA WEB
+
+
+
